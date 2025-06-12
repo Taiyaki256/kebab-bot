@@ -11,3 +11,5 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"] }
 migration = { path = "./migration" }
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
+plotters = "0.3"
+plotters-bitmap = "0.3"

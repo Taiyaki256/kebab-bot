@@ -3,7 +3,7 @@ use migration::{Migrator, MigratorTrait};
 use poise::{
     CreateReply,
     serenity_prelude::{
-        self as serenity, ButtonStyle, ComponentInteraction, CreateActionRow, CreateButton,
+        self as serenity, ButtonStyle, Colour, ComponentInteraction, CreateActionRow, CreateButton,
         CreateEmbed, CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage,
         EventHandler, Interaction, async_trait,
     },
@@ -176,14 +176,57 @@ async fn update_board(ctx: Context<'_>) -> Result<(), Error> {
                         chrono::Weekday::Sat => "土",
                         chrono::Weekday::Sun => "日",
                     };
+                    let found_button = CreateButton::new("found")
+                        .label("営業してる")
+                        .style(ButtonStyle::Primary);
+                    let not_found_button = CreateButton::new("not_found")
+                        .label("いない")
+                        .style(ButtonStyle::Secondary);
+                    let sold_out_button = CreateButton::new("sold_out")
+                        .label("売り切れた")
+                        .style(ButtonStyle::Danger);
+                    let action_row = CreateActionRow::Buttons(vec![
+                        found_button,
+                        not_found_button,
+                        sold_out_button,
+                    ]);
+
+                    // 投票結果を取得
+                    let found_count = VoteService::count_votes_by_action(
+                        &ctx.data().database,
+                        "found".to_string(),
+                    )
+                    .await
+                    .unwrap_or(0);
+                    let not_found_count = VoteService::count_votes_by_action(
+                        &ctx.data().database,
+                        "not_found".to_string(),
+                    )
+                    .await
+                    .unwrap_or(0);
+                    let sold_out_count = VoteService::count_votes_by_action(
+                        &ctx.data().database,
+                        "sold_out".to_string(),
+                    )
+                    .await
+                    .unwrap_or(0);
+
                     let embed = CreateEmbed::new()
                         .title(format!("{}({})のケバブ情報掲示板", date_str, weekday_str))
                         .description(format!(
-                            "サーバーID: {}\nチャンネルID: {}\nメッセージID: {}\n更新日時: <t:{}:F>",
-                            data.server_id, data.channel_id, data.message_id, now.timestamp()
+                            "**📊 投票結果**\n\
+                            🥙 営業してる: {}票\n\
+                            ❌ いない: {}票\n\
+                            🚫 売り切れた: {}票\n\n\
+                            更新日時: <t:{}:F>",
+                            found_count,
+                            not_found_count,
+                            sold_out_count,
+                            now.timestamp()
                         ))
+                        .colour(Colour::from_rgb(0, 255, 0))
                         .timestamp(now);
-                    let msg = EditMessage::new().embed(embed);
+                    let msg = EditMessage::new().embed(embed).components(vec![action_row]);
                     let _ = message.edit(&ctx.serenity_context().http, msg).await;
                     response.push_str(&format!(
                         "メッセージID: {} を編集しました。\n",
@@ -204,6 +247,173 @@ async fn update_board(ctx: Context<'_>) -> Result<(), Error> {
         .content(response)
         .ephemeral(true);
     ctx.send(rep).await?;
+    Ok(())
+}
+
+/// 投票をリセットするコマンド
+#[poise::command(slash_command)]
+async fn reset_votes(ctx: Context<'_>) -> Result<(), Error> {
+    match VoteService::delete_all_vote(&ctx.data().database).await {
+        Ok(result) => {
+            let rep = ctx
+                .reply_builder(CreateReply::default())
+                .content(format!(
+                    "✅ {}件の投票をリセットしました。",
+                    result.rows_affected
+                ))
+                .ephemeral(true);
+            ctx.send(rep).await?;
+        }
+        Err(e) => {
+            eprintln!("投票のリセット中にエラーが発生しました: {}", e);
+            let rep = ctx
+                .reply_builder(CreateReply::default())
+                .content("❌ 投票のリセットに失敗しました。")
+                .ephemeral(true);
+            ctx.send(rep).await?;
+        }
+    }
+    Ok(())
+}
+
+/// 投票結果を確認するコマンド
+#[poise::command(slash_command)]
+async fn vote_results(ctx: Context<'_>) -> Result<(), Error> {
+    let found_count = VoteService::count_votes_by_action(&ctx.data().database, "found".to_string())
+        .await
+        .unwrap_or(0);
+    let not_found_count =
+        VoteService::count_votes_by_action(&ctx.data().database, "not_found".to_string())
+            .await
+            .unwrap_or(0);
+    let sold_out_count =
+        VoteService::count_votes_by_action(&ctx.data().database, "sold_out".to_string())
+            .await
+            .unwrap_or(0);
+
+    let embed = CreateEmbed::new()
+        .title("📊 現在の投票結果")
+        .description(format!(
+            "🥙 営業してる: {}票\n\
+            ❌ いない: {}票\n\
+            🚫 売り切れた: {}票\n\n\
+            合計: {}票",
+            found_count,
+            not_found_count,
+            sold_out_count,
+            found_count + not_found_count + sold_out_count
+        ))
+        .colour(Colour::from_rgb(52, 152, 219))
+        .timestamp(chrono::Utc::now());
+
+    let rep = ctx.reply_builder(CreateReply::default()).embed(embed);
+    ctx.send(rep).await?;
+    Ok(())
+}
+
+/// 投票結果のグラフを生成するコマンド
+#[poise::command(slash_command)]
+async fn vote_chart(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
+
+    // 投票データを取得
+    let votes = VoteService::get_all_votes(&ctx.data().database).await?;
+
+    if votes.is_empty() {
+        ctx.say("📊 まだ投票データがありません。").await?;
+        return Ok(());
+    }
+
+    // 現在の投票数を取得
+    let found_count = VoteService::count_votes_by_action(&ctx.data().database, "found".to_string())
+        .await
+        .unwrap_or(0);
+    let not_found_count =
+        VoteService::count_votes_by_action(&ctx.data().database, "not_found".to_string())
+            .await
+            .unwrap_or(0);
+    let sold_out_count =
+        VoteService::count_votes_by_action(&ctx.data().database, "sold_out".to_string())
+            .await
+            .unwrap_or(0);
+
+    // 時系列グラフを生成
+    let timeline_path = "vote_timeline.png";
+    match ChartService::generate_vote_timeline_chart(votes, timeline_path).await {
+        Ok(_) => {
+            // ファイルを送信
+            let file = serenity::CreateAttachment::path(timeline_path).await?;
+            let rep = ctx
+                .reply_builder(CreateReply::default())
+                .content("📈 **投票の時系列グラフ**")
+                .attachment(file);
+            ctx.send(rep).await?;
+        }
+        Err(e) => {
+            eprintln!("グラフ生成エラー: {}", e);
+            ctx.say("❌ グラフの生成に失敗しました。").await?;
+        }
+    }
+
+    // 円グラフを生成
+    let pie_path = "vote_pie.png";
+    match ChartService::generate_vote_pie_chart(
+        found_count,
+        not_found_count,
+        sold_out_count,
+        pie_path,
+    )
+    .await
+    {
+        Ok(_) => {
+            // ファイルを送信
+            let file = serenity::CreateAttachment::path(pie_path).await?;
+            let rep = ctx
+                .reply_builder(CreateReply::default())
+                .content("🥧 **現在の投票結果（円グラフ）**")
+                .attachment(file);
+            ctx.send(rep).await?;
+        }
+        Err(e) => {
+            eprintln!("円グラフ生成エラー: {}", e);
+            ctx.say("❌ 円グラフの生成に失敗しました。").await?;
+        }
+    }
+
+    Ok(())
+}
+
+// 投票処理を行う共通関数
+async fn handle_vote(
+    ctx: &serenity::Context,
+    interaction: &ComponentInteraction,
+    database: &Arc<DatabaseConnection>,
+    action: &str,
+    success_message: &str,
+) -> Result<(), Error> {
+    let user_id = interaction.user.id.get() as i64;
+
+    match VoteService::update_vote(database, user_id, action.to_string()).await {
+        Ok(_) => {
+            let response = CreateInteractionResponseMessage::new()
+                .content(success_message)
+                .ephemeral(true);
+
+            interaction
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+        }
+        Err(e) => {
+            eprintln!("投票の保存中にエラーが発生しました: {}", e);
+            let response = CreateInteractionResponseMessage::new()
+                .content("投票の保存に失敗しました。")
+                .ephemeral(true);
+
+            interaction
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+        }
+    }
     Ok(())
 }
 
@@ -238,15 +448,38 @@ async fn handle_button_interaction(
                 .create_response(&ctx.http, CreateInteractionResponse::Message(response))
                 .await?;
         }
-        "update_complete" => {
-            // 完了ボタンが押された時の処理
-            let response = CreateInteractionResponseMessage::new()
-                .content("更新が完了しました！")
-                .ephemeral(true);
-
-            interaction
-                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-                .await?;
+        "found" => {
+            // ケバブ屋が居た時のボタン
+            handle_vote(
+                ctx,
+                interaction,
+                database,
+                "found",
+                "🥙 「営業してる」に投票しました！",
+            )
+            .await?;
+        }
+        "not_found" => {
+            // ケバブ屋が居なかった時のボタン
+            handle_vote(
+                ctx,
+                interaction,
+                database,
+                "not_found",
+                "❌ 「いない」に投票しました！",
+            )
+            .await?;
+        }
+        "sold_out" => {
+            // 売り切れ、おしまいだった時のボタン
+            handle_vote(
+                ctx,
+                interaction,
+                database,
+                "sold_out",
+                "🚫 「売り切れた」に投票しました！",
+            )
+            .await?;
         }
         _ => {
             // 未知のボタンID
@@ -299,6 +532,15 @@ async fn main() {
         .expect("マイグレーションの実行に失敗しました");
 
     println!("データベースの初期化が完了しました！");
+    println!("Botを起動しています...");
+    println!(
+        "DISCORD_TOKEN環境変数: {}",
+        if std::env::var("DISCORD_TOKEN").is_ok() {
+            "設定済み"
+        } else {
+            "未設定"
+        }
+    );
 
     // データベースをArcで包む
     let database = Arc::new(database);
@@ -314,12 +556,24 @@ async fn main() {
                 serverinfo(),
                 create_board(),
                 update_board(),
+                reset_votes(),
+                vote_results(),
+                vote_chart(),
             ],
             ..Default::default()
         })
         .setup(move |ctx, _ready, framework| {
             Box::pin(async move {
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                println!("登録するコマンド数: {}", framework.options().commands.len());
+                for command in &framework.options().commands {
+                    println!("コマンド名: {}", command.name);
+                }
+
+                match poise::builtins::register_globally(ctx, &framework.options().commands).await {
+                    Ok(_) => println!("✅ スラッシュコマンドの登録が完了しました！"),
+                    Err(e) => eprintln!("❌ スラッシュコマンドの登録に失敗しました: {}", e),
+                }
+
                 Ok(Data {
                     database: database_for_setup,
                 })

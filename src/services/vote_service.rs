@@ -65,6 +65,27 @@ impl VoteService {
             .await
     }
 
+    /// 全ての投票データを取得
+    pub async fn get_all_votes(db: &DatabaseConnection) -> Result<Vec<VoteModel>, DbErr> {
+        vote::Entity::find()
+            .order_by_asc(vote::Column::UpdatedAt)
+            .all(db)
+            .await
+    }
+
+    /// 特定の日付範囲での投票データを取得
+    pub async fn get_votes_in_range(
+        db: &DatabaseConnection,
+        start_date: chrono::DateTime<chrono::Utc>,
+        end_date: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<VoteModel>, DbErr> {
+        vote::Entity::find()
+            .filter(vote::Column::UpdatedAt.between(start_date, end_date))
+            .order_by_asc(vote::Column::UpdatedAt)
+            .all(db)
+            .await
+    }
+
     pub async fn delete_all_vote(db: &DatabaseConnection) -> Result<DeleteResult, DbErr> {
         vote::Entity::delete_many().exec(db).await
     }
