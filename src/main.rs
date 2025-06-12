@@ -1,9 +1,15 @@
+use chrono::Datelike;
 use migration::{Migrator, MigratorTrait};
 use poise::{
     CreateReply,
-    serenity_prelude::{self as serenity, ChannelId},
+    serenity_prelude::{
+        self as serenity, ButtonStyle, ComponentInteraction, CreateActionRow, CreateButton,
+        CreateEmbed, CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage,
+        EventHandler, Interaction, async_trait,
+    },
 };
 use sea_orm::{Database, DatabaseConnection};
+use std::sync::Arc;
 
 mod entities;
 mod services;
@@ -15,7 +21,7 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 
 // ユーザーデータ構造体
 pub struct Data {
-    database: DatabaseConnection,
+    database: Arc<DatabaseConnection>,
 }
 
 /// ping コマンド
@@ -101,15 +107,18 @@ async fn create_board(ctx: Context<'_>) -> Result<(), Error> {
     let channel_id = ctx.channel_id().get() as i64;
     let message_id = res.message().await?.id.get() as i64;
 
-    BoardService::create_board_data(&ctx.data().database, server_id, channel_id, message_id)
-        .await?;
+    BoardService::update_board_data(
+        &ctx.data().database,
+        server_id,
+        Some(channel_id),
+        Some(message_id),
+    )
+    .await?;
 
-    // ctx.defer_ephemeral().await?;
-    // ctx.send(CreateReply()).await?;
     let rep = ctx
         .reply_builder(CreateReply::default())
         .content(format!(
-            "データを保存しました。\nサーバーID: {}\nチャンネルID: {}\nメッセージID: {}",
+            "掲示板データを保存しました。\nサーバーID: {}\nチャンネルID: {}\nメッセージID: {}",
             server_id, channel_id, message_id
         ))
         .ephemeral(true);
@@ -123,9 +132,16 @@ async fn update_board(ctx: Context<'_>) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
     let board_data = BoardService::get_all_board_data(&ctx.data().database).await?;
     if board_data.is_empty() {
+        let button = CreateButton::new("refresh_board")
+            .label("更新")
+            .style(ButtonStyle::Primary);
+
+        let action_row = CreateActionRow::Buttons(vec![button]);
+
         let rep = ctx
             .reply_builder(CreateReply::default())
             .content("保存された掲示板データはありません。")
+            .components(vec![action_row])
             .ephemeral(true);
         ctx.send(rep).await?;
         return Ok(());
@@ -147,13 +163,28 @@ async fn update_board(ctx: Context<'_>) -> Result<(), Error> {
                 {
                     // ここでメッセージ内容を編集
                     let now = chrono::Utc::now();
-                    let _ = message
-                        .edit(
-                            &ctx.serenity_context().http,
-                            serenity::EditMessage::new()
-                                .content(format!("更新日時: <t:{}:F>", now.timestamp())),
-                        )
-                        .await;
+                    let date = now.date_naive();
+                    let date_str = date.format("%m/%d").to_string();
+                    // 曜日
+                    let weekday = now.weekday();
+                    let weekday_str = match weekday {
+                        chrono::Weekday::Mon => "月",
+                        chrono::Weekday::Tue => "火",
+                        chrono::Weekday::Wed => "水",
+                        chrono::Weekday::Thu => "木",
+                        chrono::Weekday::Fri => "金",
+                        chrono::Weekday::Sat => "土",
+                        chrono::Weekday::Sun => "日",
+                    };
+                    let embed = CreateEmbed::new()
+                        .title(format!("{}({})のケバブ情報掲示板", date_str, weekday_str))
+                        .description(format!(
+                            "サーバーID: {}\nチャンネルID: {}\nメッセージID: {}\n更新日時: <t:{}:F>",
+                            data.server_id, data.channel_id, data.message_id, now.timestamp()
+                        ))
+                        .timestamp(now);
+                    let msg = EditMessage::new().embed(embed);
+                    let _ = message.edit(&ctx.serenity_context().http, msg).await;
                     response.push_str(&format!(
                         "メッセージID: {} を編集しました。\n",
                         data.message_id
@@ -167,12 +198,89 @@ async fn update_board(ctx: Context<'_>) -> Result<(), Error> {
             }
         }
     }
+
     let rep = ctx
         .reply_builder(CreateReply::default())
         .content(response)
         .ephemeral(true);
     ctx.send(rep).await?;
     Ok(())
+}
+
+// ボタンインタラクションを処理する関数
+async fn handle_button_interaction(
+    ctx: &serenity::Context,
+    interaction: &ComponentInteraction,
+    database: &Arc<DatabaseConnection>,
+) -> Result<(), Error> {
+    match interaction.data.custom_id.as_str() {
+        "refresh_board" => {
+            // 更新ボタンが押された時の処理 - 実際に掲示板データを取得して表示
+            let board_data = BoardService::get_all_board_data(database).await?;
+            let content = if board_data.is_empty() {
+                "まだ掲示板データがありません。".to_string()
+            } else {
+                let mut response = String::from("🔄 掲示板データを再読み込みしました:\n");
+                for data in board_data {
+                    response.push_str(&format!(
+                        "• サーバーID: {} | チャンネルID: {} | メッセージID: {}\n",
+                        data.server_id, data.channel_id, data.message_id
+                    ));
+                }
+                response
+            };
+
+            let response = CreateInteractionResponseMessage::new()
+                .content(content)
+                .ephemeral(true);
+
+            interaction
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+        }
+        "update_complete" => {
+            // 完了ボタンが押された時の処理
+            let response = CreateInteractionResponseMessage::new()
+                .content("更新が完了しました！")
+                .ephemeral(true);
+
+            interaction
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+        }
+        _ => {
+            // 未知のボタンID
+            let response = CreateInteractionResponseMessage::new()
+                .content("不明なボタンです。")
+                .ephemeral(true);
+
+            interaction
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+// イベントハンドラー構造体
+struct Handler {
+    database: Arc<DatabaseConnection>,
+}
+
+#[async_trait]
+impl EventHandler for Handler {
+    async fn interaction_create(&self, ctx: serenity::Context, interaction: Interaction) {
+        if let Interaction::Component(component_interaction) = interaction {
+            if let Err(e) =
+                handle_button_interaction(&ctx, &component_interaction, &self.database).await
+            {
+                eprintln!(
+                    "ボタンインタラクションの処理中にエラーが発生しました: {}",
+                    e
+                );
+            }
+        }
+    }
 }
 
 #[tokio::main]
@@ -192,6 +300,11 @@ async fn main() {
 
     println!("データベースの初期化が完了しました！");
 
+    // データベースをArcで包む
+    let database = Arc::new(database);
+    let database_for_setup = Arc::clone(&database);
+    let database_for_handler = Arc::clone(&database);
+
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![
@@ -204,10 +317,12 @@ async fn main() {
             ],
             ..Default::default()
         })
-        .setup(|ctx, _ready, framework| {
+        .setup(move |ctx, _ready, framework| {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                Ok(Data { database })
+                Ok(Data {
+                    database: database_for_setup,
+                })
             })
         })
         .build();
@@ -215,8 +330,14 @@ async fn main() {
     let token = std::env::var("DISCORD_TOKEN").expect("missing DISCORD_TOKEN");
     let intents = serenity::GatewayIntents::non_privileged();
 
+    // イベントハンドラーを作成
+    let handler = Handler {
+        database: database_for_handler,
+    };
+
     let client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)
+        .event_handler(handler)
         .await;
     client.unwrap().start().await.unwrap();
 }

@@ -71,28 +71,26 @@ impl BoardService {
     /// ボードデータを更新
     pub async fn update_board_data(
         db: &DatabaseConnection,
-        id: i32,
-        server_id: Option<i64>,
+        server_id: i64,
         channel_id: Option<i64>,
         message_id: Option<i64>,
     ) -> Result<BoardDataModel, DbErr> {
-        let board_data = BoardData::find_by_id(id)
-            .one(db)
-            .await?
-            .ok_or(DbErr::RecordNotFound("Board data not found".to_string()))?;
-
-        let mut board_data: board_data::ActiveModel = board_data.into();
-
-        if let Some(server_id) = server_id {
-            board_data.server_id = Set(server_id);
+        let board_data_vec = Self::get_board_data_by_server_id(db, server_id).await?;
+        if board_data_vec.is_empty() {
+            let channel_id =
+                channel_id.ok_or(DbErr::Custom("channel_id is required".to_string()))?;
+            let message_id =
+                message_id.ok_or(DbErr::Custom("message_id is required".to_string()))?;
+            return Self::create_board_data(db, server_id, channel_id, message_id).await;
         }
+
+        let mut board_data: board_data::ActiveModel = board_data_vec[0].clone().into();
         if let Some(channel_id) = channel_id {
             board_data.channel_id = Set(channel_id);
         }
         if let Some(message_id) = message_id {
             board_data.message_id = Set(message_id);
         }
-
         board_data.updated_at = Set(Utc::now().into());
 
         board_data.update(db).await

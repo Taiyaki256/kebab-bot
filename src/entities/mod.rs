@@ -3,3 +3,4 @@
 pub mod prelude;
 
 pub mod board_data;
+pub mod vote;

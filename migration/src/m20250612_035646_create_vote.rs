@@ -12,13 +12,11 @@ impl MigrationTrait for Migration {
                     .table(Vote::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(Vote::Id)
-                            .integer()
+                        ColumnDef::new(Vote::UserId)
+                            .big_integer()
                             .not_null()
-                            .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(Vote::UserId).big_integer().not_null())
                     .col(ColumnDef::new(Vote::Action).string().not_null())
                     .col(
                         ColumnDef::new(Vote::CreatedAt)
@@ -47,7 +45,6 @@ impl MigrationTrait for Migration {
 #[derive(DeriveIden)]
 enum Vote {
     Table,
-    Id,
     UserId,
     Action,
     CreatedAt,
