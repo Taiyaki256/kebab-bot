@@ -1,0 +1,6 @@
+/target
+.env
+/migration/target
+
+*.db
+.DS_Store
