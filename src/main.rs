@@ -53,6 +53,24 @@ async fn handle_vote(
                 .await?;
         }
     }
+
+    // 投票データを取得してタイムラインチャートを生成
+    let votes = VoteService::get_all_votes(database).await?;
+    if !votes.is_empty() {
+        let timeline_path = "vote_timeline.png";
+        if let Err(e) = ChartService::generate_vote_timeline_chart(votes, timeline_path).await {
+            eprintln!("タイムラインチャート生成エラー: {}", e);
+        }
+    }
+
+    let board_data = BoardService::get_all_board_data(database).await?;
+    if board_data.is_empty() {
+        // serenity用の関数は直接関数として呼び出すのではなく、BoardUIServiceのメソッドとして使用する
+        // しかし、ここではinteractionを持っていないので、単純にreturnする
+        return Ok(());
+    }
+
+    let _response = BoardUIService::update_all_board_messages_serenity(&ctx, board_data, database).await?;
     Ok(())
 }
 

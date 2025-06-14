@@ -54,10 +54,7 @@ impl ChartService {
         let (upper, lower) = root.split_vertically((94).percent());
 
         let mut chart = ChartBuilder::on(&upper)
-            .caption(
-                "ケバブ投票",
-                ("Hiragino Sans", 40).into_font().color(&BLACK),
-            )
+            .caption("ケバブ屋", ("Hiragino Sans", 40).into_font().color(&BLACK))
             .margin(20)
             .x_label_area_size(20)
             .y_label_area_size(60)
@@ -106,7 +103,7 @@ impl ChartService {
         // アクションごとに累積折れ線グラフを描画
         let actions = ["found", "not_found", "sold_out"];
         let colors = [&GREEN, &BLUE, &RED];
-        let labels = ["営業してる（累積）", "いない（累積）", "売り切れた（累積）"];
+        let labels = ["営業してる", "いない", "売り切れた"];
 
         for (action_idx, action) in actions.iter().enumerate() {
             let mut cumulative_count = 0u32;
