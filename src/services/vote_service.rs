@@ -1,6 +1,6 @@
-use crate::entities::prelude::*;
 use crate::entities::{vote, vote::Model as VoteModel};
-use chrono::Utc;
+use chrono::{NaiveDate, Timelike, Utc};
+use chrono_tz::Asia::Tokyo;
 use sea_orm::*;
 
 pub struct VoteService;
@@ -88,5 +88,83 @@ impl VoteService {
 
     pub async fn delete_all_vote(db: &DatabaseConnection) -> Result<DeleteResult, DbErr> {
         vote::Entity::delete_many().exec(db).await
+    }
+
+    /// 最新の投票更新日時を取得
+    pub async fn get_latest_vote_updated_at(
+        db: &DatabaseConnection,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, DbErr> {
+        vote::Entity::find()
+            .order_by_desc(vote::Column::UpdatedAt)
+            .one(db)
+            .await
+            .map(|vote| vote.map(|v| v.updated_at.naive_utc().and_utc()))
+    }
+
+    /// 日本時間での現在の投票期間（午後期間）を取得
+    /// 午後12時（正午）から午後11時59分59秒までを1つの投票期間とする
+    pub fn get_current_jst_afternoon_period() -> NaiveDate {
+        let now_jst = Utc::now().with_timezone(&Tokyo);
+
+        // 午後12時（正午）より前の場合は前日の午後期間とみなす
+        if now_jst.hour() < 12 {
+            now_jst
+                .date_naive()
+                .pred_opt()
+                .unwrap_or(now_jst.date_naive())
+        } else {
+            now_jst.date_naive()
+        }
+    }
+
+    /// 最新の投票の日本時間での投票期間を取得
+    pub async fn get_latest_vote_jst_afternoon_period(
+        db: &DatabaseConnection,
+    ) -> Result<Option<NaiveDate>, DbErr> {
+        if let Some(dt) = Self::get_latest_vote_updated_at(db).await? {
+            let jst_dt = dt.with_timezone(&Tokyo);
+
+            // 午後12時（正午）より前の場合は前日の午後期間とみなす
+            let period_date = if jst_dt.hour() < 12 {
+                jst_dt
+                    .date_naive()
+                    .pred_opt()
+                    .unwrap_or(jst_dt.date_naive())
+            } else {
+                jst_dt.date_naive()
+            };
+
+            Ok(Some(period_date))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 投票期間が変わったかどうかをチェックし、変わっていた場合は投票をリセット
+    /// 午後12時（正午）を境に投票期間が切り替わる
+    pub async fn check_and_reset_votes_if_new_day(db: &DatabaseConnection) -> Result<bool, DbErr> {
+        let current_period = Self::get_current_jst_afternoon_period();
+        let latest_vote_period = Self::get_latest_vote_jst_afternoon_period(db).await?;
+
+        match latest_vote_period {
+            Some(latest_period) if latest_period < current_period => {
+                // 投票期間が変わっているので投票をリセット
+                Self::delete_all_vote(db).await?;
+                println!(
+                    "🔄 投票期間が変わったため投票をリセットしました: {} → {}",
+                    latest_period, current_period
+                );
+                Ok(true)
+            }
+            None => {
+                // 投票データがない場合（初回起動など）
+                println!("ℹ️ 投票データがありません（初回起動または既にリセット済み）");
+                Ok(false)
+            }
+            Some(_) => {
+                // 同じ投票期間なのでリセットしない
+                Ok(false)
+            }
+        }
     }
 }

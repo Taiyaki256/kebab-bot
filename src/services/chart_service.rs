@@ -1,88 +1,149 @@
 use crate::entities::vote::Model as VoteModel;
-use chrono::Datelike;
+use chrono::Timelike;
+use chrono_tz::Asia::Tokyo;
 use plotters::prelude::*;
+use plotters::style::RGBColor;
 use std::collections::HashMap;
 
 pub struct ChartService;
 
 impl ChartService {
-    /// 投票データから時系列グラフを生成
+    /// 投票データから時系列グラフを生成（時間ベース）
     pub async fn generate_vote_timeline_chart(
         votes: Vec<VoteModel>,
         output_path: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // 日付ごとに投票数を集計
-        let mut daily_counts: HashMap<String, HashMap<String, u32>> = HashMap::new();
-
-        for vote in votes {
-            let date = vote.updated_at.date_naive().format("%m/%d").to_string();
-            let action_counts = daily_counts.entry(date).or_insert_with(HashMap::new);
-            *action_counts.entry(vote.action).or_insert(0) += 1;
+        // 12時から24時まで1分間隔の時間ラベルを準備
+        let mut time_labels: Vec<String> = Vec::new();
+        for hour in 14..20 {
+            for minute in 0..60 {
+                time_labels.push(format!("{:02}:{:02}", hour, minute));
+            }
         }
 
-        // 日付順にソート
-        let mut sorted_dates: Vec<_> = daily_counts.keys().cloned().collect();
-        sorted_dates.sort();
+        // 時間ごとに投票数を集計
+        let mut hour_counts: HashMap<String, HashMap<String, u32>> = HashMap::new();
 
-        if sorted_dates.is_empty() {
-            return Err("投票データがありません".into());
+        for vote in votes {
+            // 日本時間に変換
+            let jst_dt = vote.updated_at.with_timezone(&Tokyo);
+            let hour = jst_dt.hour();
+            let minute = jst_dt.minute();
+
+            // 12時から24時の範囲のみ処理
+            if hour >= 14 && hour < 24 {
+                // 1分単位で集計
+                let time_label = format!("{:02}:{:02}", hour, minute);
+                let action_counts = hour_counts.entry(time_label).or_insert_with(HashMap::new);
+                *action_counts.entry(vote.action).or_insert(0) += 1;
+            }
+        }
+
+        // 全ての時間ラベルに対してデータが存在するように初期化
+        for hour_label in &time_labels {
+            hour_counts
+                .entry(hour_label.clone())
+                .or_insert_with(HashMap::new);
         }
 
         // 画像サイズと出力設定
-        let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
+        let root = BitMapBackend::new(output_path, (1200, 600)).into_drawing_area();
         root.fill(&WHITE)?;
 
-        let mut chart = ChartBuilder::on(&root)
-            .caption("ケバブ投票の推移", ("sans-serif", 40))
-            .margin(10)
-            .x_label_area_size(50)
-            .y_label_area_size(50)
+        // エリアを分割（上：グラフエリア、下：ラベルエリア）
+        let (upper, lower) = root.split_vertically((94).percent());
+
+        let mut chart = ChartBuilder::on(&upper)
+            .caption(
+                "ケバブ投票",
+                ("Hiragino Sans", 40).into_font().color(&BLACK),
+            )
+            .margin(20)
+            .x_label_area_size(20)
+            .y_label_area_size(60)
             .build_cartesian_2d(
-                0f32..sorted_dates.len() as f32,
-                0f32..20f32, // 最大投票数を想定
+                0f32..time_labels.len() as f32,
+                0f32..20f32, // Y軸を15まで、より適切な目盛り間隔に
             )?;
 
         chart
             .configure_mesh()
-            .x_desc("日付")
-            .y_desc("投票数")
-            .x_label_formatter(&|x| {
-                let index = *x as usize;
-                if index < sorted_dates.len() {
-                    sorted_dates[index].clone()
-                } else {
-                    String::new()
-                }
-            })
+            .y_desc("累積投票数")
+            .y_max_light_lines(5)
+            .y_label_formatter(&|y| format!("{}", *y as i32)) // 整数表示
+            .y_labels(5)
+            .label_style(("Hiragino Sans", 15).into_font().color(&BLACK))
+            .axis_desc_style(("Hiragino Sans", 20).into_font().color(&BLACK))
+            .x_labels(0)
             .draw()?;
 
-        // アクションごとに線グラフを描画
-        let actions = ["found", "not_found", "sold_out"];
-        let colors = [&RED, &BLUE, &GREEN];
-        let labels = ["営業してる", "いない", "売り切れた"];
+        // 手動でX軸ラベルと縦線を描画（30分間隔）
+        for hour in 14..20 {
+            for minute in [0, 30] {
+                let time_str = format!("{:02}:{:02}", hour, minute);
+                if let Some(index) = time_labels.iter().position(|x| x == &time_str) {
+                    let x_pos = index as f32;
 
-        for (i, action) in actions.iter().enumerate() {
-            let data: Vec<(f32, f32)> = sorted_dates
+                    // ラベルエリアに描画
+                    let chart_width = 1200.0 - 20.0 * 2.0 - 60.0; // 全体幅 - マージン - Y軸ラベルエリア
+                    let x_pixel = 20.0 + 60.0 + (x_pos / time_labels.len() as f32) * chart_width;
+
+                    lower.draw(&Text::new(
+                        time_str,
+                        (x_pixel as i32, 30),
+                        ("Hiragino Sans", 14).into_font().color(&BLACK),
+                    ))?;
+
+                    // 縦のグリッド線を描画
+                    chart.draw_series(std::iter::once(PathElement::new(
+                        vec![(x_pos, 0.0), (x_pos, 20.0)],
+                        RGBColor(128, 128, 128).mix(0.3).stroke_width(1),
+                    )))?;
+                }
+            }
+        }
+
+        // アクションごとに累積折れ線グラフを描画
+        let actions = ["found", "not_found", "sold_out"];
+        let colors = [&GREEN, &BLUE, &RED];
+        let labels = ["営業してる（累積）", "いない（累積）", "売り切れた（累積）"];
+
+        for (action_idx, action) in actions.iter().enumerate() {
+            let mut cumulative_count = 0u32;
+            let mut data_with_changes: Vec<(f32, f32)> = Vec::new();
+            let data: Vec<(f32, f32)> = time_labels
                 .iter()
                 .enumerate()
-                .map(|(date_idx, date)| {
-                    let count = daily_counts
-                        .get(date)
+                .map(|(hour_idx, hour_label)| {
+                    let count = hour_counts
+                        .get(hour_label)
                         .and_then(|counts| counts.get(*action))
                         .unwrap_or(&0);
-                    (date_idx as f32, *count as f32)
+                    let prev_cumulative = cumulative_count;
+                    cumulative_count += count;
+
+                    // 値が変わった時のみdata_with_changesに追加
+                    if *count > 0 {
+                        data_with_changes.push((hour_idx as f32, cumulative_count as f32));
+                    }
+
+                    (hour_idx as f32, cumulative_count as f32)
                 })
                 .collect();
 
+            // 折れ線グラフを描画
             chart
-                .draw_series(LineSeries::new(data.clone(), colors[i]))?
-                .label(labels[i])
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 10, y)], colors[i]));
+                .draw_series(LineSeries::new(data.clone(), colors[action_idx]))?
+                .label(labels[action_idx])
+                .legend(move |(x, y)| {
+                    PathElement::new(vec![(x, y), (x + 10, y)], colors[action_idx])
+                });
 
-            // データポイントをマーク
+            // 値が変わったポイントのみマーク
             chart.draw_series(
-                data.iter()
-                    .map(|(x, y)| Circle::new((*x, *y), 3, colors[i].filled())),
+                data_with_changes
+                    .iter()
+                    .map(|(x, y)| Circle::new((*x, *y), 3, colors[action_idx].filled())),
             )?;
         }
 
@@ -90,70 +151,8 @@ impl ChartService {
             .configure_series_labels()
             .background_style(&WHITE.mix(0.8))
             .border_style(&BLACK)
+            .label_font(("Hiragino Sans", 15).into_font().color(&BLACK))
             .draw()?;
-
-        root.present()?;
-        Ok(())
-    }
-
-    /// 円グラフで現在の投票結果を生成
-    pub async fn generate_vote_pie_chart(
-        found_count: u64,
-        not_found_count: u64,
-        sold_out_count: u64,
-        output_path: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let total = found_count + not_found_count + sold_out_count;
-
-        if total == 0 {
-            return Err("投票データがありません".into());
-        }
-
-        let root = BitMapBackend::new(output_path, (600, 600)).into_drawing_area();
-        root.fill(&WHITE)?;
-
-        let mut chart = ChartBuilder::on(&root)
-            .caption("現在の投票結果", ("sans-serif", 40))
-            .margin(10)
-            .build_cartesian_2d(-1.2f32..1.2f32, -1.2f32..1.2f32)?;
-
-        let data = vec![
-            ("営業してる", found_count as f32, &RED),
-            ("いない", not_found_count as f32, &BLUE),
-            ("売り切れた", sold_out_count as f32, &GREEN),
-        ];
-
-        let mut angle = 0.0;
-        for (label, count, color) in data {
-            if count > 0.0 {
-                let slice_angle = (count / total as f32) * 360.0;
-                let end_angle = angle + slice_angle;
-
-                // パイスライスを描画
-                let mut points = vec![(0.0, 0.0)];
-                let steps = (slice_angle / 5.0).max(1.0) as i32;
-                for i in 0..=steps {
-                    let current_angle = angle + (slice_angle * i as f32 / steps as f32);
-                    let rad = current_angle.to_radians();
-                    points.push((rad.cos(), rad.sin()));
-                }
-
-                chart.draw_series(std::iter::once(Polygon::new(points, color.filled())))?;
-
-                // ラベルを描画
-                let label_angle = (angle + slice_angle / 2.0).to_radians();
-                let label_x = label_angle.cos() * 0.7;
-                let label_y = label_angle.sin() * 0.7;
-
-                chart.draw_series(std::iter::once(Text::new(
-                    format!("{}\n{}票", label, count),
-                    (label_x, label_y),
-                    ("sans-serif", 15),
-                )))?;
-
-                angle = end_angle;
-            }
-        }
 
         root.present()?;
         Ok(())
