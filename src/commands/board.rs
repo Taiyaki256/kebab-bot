@@ -34,8 +34,13 @@ pub async fn create_board(ctx: Context<'_>) -> Result<(), Error> {
 pub async fn update_board(ctx: Context<'_>) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
 
-    // 日付チェックを行い、必要に応じて投票をリセット
-    if let Err(e) = VoteService::check_and_reset_votes_if_new_day(&ctx.data().database).await {
+    // 日付チェックを行い、必要に応じて投票をリセットして掲示板を更新
+    if let Err(e) = VoteService::check_reset_and_update_board_if_new_day(
+        &ctx.data().database,
+        ctx.serenity_context(),
+    )
+    .await
+    {
         eprintln!("日付チェック中にエラーが発生しました: {}", e);
     }
 

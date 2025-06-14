@@ -186,62 +186,8 @@ impl BoardUIService {
         }
     }
 
-    /// serenity::Context用：保存された掲示板データがない場合の処理
-    pub async fn handle_empty_board_data_serenity(
-        ctx: &poise::serenity_prelude::Context,
-        interaction: &poise::serenity_prelude::ComponentInteraction,
-    ) -> Result<(), Error> {
-        let response = poise::serenity_prelude::CreateInteractionResponseMessage::new()
-            .content("保存された掲示板データはありません。")
-            .ephemeral(true);
-
-        interaction
-            .create_response(
-                &ctx.http,
-                poise::serenity_prelude::CreateInteractionResponse::Message(response),
-            )
-            .await?;
-        Ok(())
-    }
-
-    /// serenity::Context用：全ての掲示板メッセージを更新する
-    pub async fn update_all_board_messages_serenity(
-        ctx: &poise::serenity_prelude::Context,
-        board_data: Vec<crate::entities::board_data::Model>,
-        database: &sea_orm::DatabaseConnection,
-    ) -> Result<String, Error> {
-        let mut response = String::from("保存された掲示板データ:\n");
-
-        // タイムラインチャートが存在するかチェック
-        let timeline_path = "vote_timeline.png";
-        let chart_exists = std::path::Path::new(timeline_path).exists();
-
-        // embedとボタンを一度だけ作成
-        let (embed, action_row) =
-            Self::create_board_embed_and_buttons_serenity(database, chart_exists).await?;
-
-        for (index, data) in board_data.iter().enumerate() {
-            // Rate limit対策: 複数メッセージがある場合は間隔を空ける
-            if index > 0 {
-                sleep(Duration::from_millis(500)).await;
-            }
-
-            match Self::update_single_board_message_serenity(ctx, data, &embed, &action_row).await {
-                Ok(message) => response.push_str(&message),
-                Err(e) => {
-                    response.push_str(&format!(
-                        "メッセージID: {} の更新中にエラーが発生しました: {}\n",
-                        data.message_id, e
-                    ));
-                }
-            }
-        }
-
-        Ok(response)
-    }
-
-    /// serenity::Context用：単一の掲示板メッセージを更新する
-    async fn update_single_board_message_serenity(
+    /// 単一の掲示板メッセージを更新する（Serenity Context用）
+    pub async fn update_single_board_message_serenity(
         ctx: &poise::serenity_prelude::Context,
         data: &crate::entities::board_data::Model,
         embed: &CreateEmbed,
@@ -285,7 +231,43 @@ impl BoardUIService {
         }
     }
 
-    /// serenity::Context用：掲示板のEmbedとボタンを作成する
+    /// 全ての掲示板メッセージを更新する（Serenity Context用）
+    pub async fn update_all_board_messages_serenity(
+        ctx: &poise::serenity_prelude::Context,
+        board_data: Vec<crate::entities::board_data::Model>,
+        database: &sea_orm::DatabaseConnection,
+    ) -> Result<String, Error> {
+        let mut response = String::from("保存された掲示板データ:\n");
+
+        // タイムラインチャートが存在するかチェック
+        let timeline_path = "vote_timeline.png";
+        let chart_exists = std::path::Path::new(timeline_path).exists();
+
+        // embedとボタンを一度だけ作成
+        let (embed, action_row) =
+            Self::create_board_embed_and_buttons_serenity(database, chart_exists).await?;
+
+        for (index, data) in board_data.iter().enumerate() {
+            // Rate limit対策: 複数メッセージがある場合は間隔を空ける
+            if index > 0 {
+                sleep(Duration::from_millis(500)).await;
+            }
+
+            match Self::update_single_board_message_serenity(ctx, data, &embed, &action_row).await {
+                Ok(message) => response.push_str(&message),
+                Err(e) => {
+                    response.push_str(&format!(
+                        "メッセージID: {} の更新中にエラーが発生しました: {}\n",
+                        data.message_id, e
+                    ));
+                }
+            }
+        }
+
+        Ok(response)
+    }
+
+    /// 掲示板のEmbedとボタンを作成する（データベース直接アクセス用）
     pub async fn create_board_embed_and_buttons_serenity(
         database: &sea_orm::DatabaseConnection,
         chart_exists: bool,

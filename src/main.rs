@@ -1,7 +1,7 @@
 use migration::{Migrator, MigratorTrait};
 use poise::serenity_prelude::{
     self as serenity, ComponentInteraction, CreateInteractionResponse,
-    CreateInteractionResponseMessage, EventHandler, Interaction, async_trait,
+    CreateInteractionResponseMessage, EventHandler, Interaction, Ready, async_trait,
 };
 use sea_orm::{Database, DatabaseConnection};
 use std::sync::Arc;
@@ -70,7 +70,8 @@ async fn handle_vote(
         return Ok(());
     }
 
-    let _response = BoardUIService::update_all_board_messages_serenity(&ctx, board_data, database).await?;
+    let _response =
+        BoardUIService::update_all_board_messages_serenity(&ctx, board_data, database).await?;
     Ok(())
 }
 
@@ -80,8 +81,8 @@ async fn handle_button_interaction(
     interaction: &ComponentInteraction,
     database: &Arc<DatabaseConnection>,
 ) -> Result<(), Error> {
-    // まず日付チェックを行い、必要に応じて投票をリセット
-    if let Err(e) = VoteService::check_and_reset_votes_if_new_day(database).await {
+    // まず日付チェックを行い、必要に応じて投票をリセットして掲示板を更新
+    if let Err(e) = VoteService::check_reset_and_update_board_if_new_day(database, ctx).await {
         eprintln!("日付チェック中にエラーが発生しました: {}", e);
     }
 
@@ -157,18 +158,25 @@ async fn handle_button_interaction(
     Ok(())
 }
 
-// 定期的に投票期間チェックを行うバックグラウンドタスク
-async fn periodic_date_check(database: Arc<DatabaseConnection>) {
+// 定期的に投票期間チェックを行うバックグラウンドタスク（掲示板更新付き）
+async fn periodic_date_check_with_board_update(
+    database: Arc<DatabaseConnection>,
+    serenity_ctx: serenity::Context,
+) {
     // 毎時0分に実行するため、現在時刻から次の0分までの時間を計算
     let mut interval = interval(Duration::from_secs(3600)); // 1時間ごと
 
     loop {
         interval.tick().await;
 
-        match VoteService::check_and_reset_votes_if_new_day(&database).await {
+        match VoteService::check_reset_and_update_board_if_new_day(&database, &serenity_ctx).await {
             Ok(reset) => {
                 if reset {
-                    println!("🔄 定期チェック: 投票期間変更による投票リセットが完了しました！");
+                    println!(
+                        "🔄 定期チェック: 投票期間変更による投票リセットと掲示板更新が完了しました！"
+                    );
+                } else {
+                    println!("ℹ️ 定期チェック: 投票期間は継続中です");
                 }
             }
             Err(e) => {
@@ -185,6 +193,35 @@ struct Handler {
 
 #[async_trait]
 impl EventHandler for Handler {
+    async fn ready(&self, ctx: serenity::Context, ready: Ready) {
+        println!("🤖 {} がログインしました！", ready.user.name);
+
+        let database_clone = Arc::clone(&self.database);
+        let ctx_clone = ctx.clone();
+
+        // 投票期間が変わっていたら投票をリセット
+        match VoteService::check_reset_and_update_board_if_new_day(&database_clone, &ctx_clone)
+            .await
+        {
+            Ok(reset) => {
+                if reset {
+                    println!("✅ 投票期間変更による投票リセットが完了しました！");
+                } else {
+                    println!("ℹ️ 現在の投票期間（午後期間）は継続中です");
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️ 投票期間チェック中にエラーが発生しました: {}", e);
+            }
+        }
+
+        tokio::spawn(periodic_date_check_with_board_update(
+            database_clone,
+            ctx_clone,
+        ));
+        println!("🕒 定期日付チェック・掲示板更新タスクを開始しました（1時間ごと）");
+    }
+
     async fn interaction_create(&self, ctx: serenity::Context, interaction: Interaction) {
         if let Interaction::Component(component_interaction) = interaction {
             if let Err(e) =
@@ -216,20 +253,6 @@ async fn main() {
 
     println!("データベースの初期化が完了しました！");
 
-    // 投票期間が変わっていたら投票をリセット
-    match VoteService::check_and_reset_votes_if_new_day(&database).await {
-        Ok(reset) => {
-            if reset {
-                println!("✅ 投票期間変更による投票リセットが完了しました！");
-            } else {
-                println!("ℹ️ 現在の投票期間（午後期間）は継続中です");
-            }
-        }
-        Err(e) => {
-            eprintln!("⚠️ 投票期間チェック中にエラーが発生しました: {}", e);
-        }
-    }
-
     println!("Botを起動しています...");
     println!(
         "DISCORD_TOKEN環境変数: {}",
@@ -244,11 +267,6 @@ async fn main() {
     let database = Arc::new(database);
     let database_for_setup = Arc::clone(&database);
     let database_for_handler = Arc::clone(&database);
-    let database_for_periodic = Arc::clone(&database);
-
-    // 定期的な日付チェックタスクを開始
-    tokio::spawn(periodic_date_check(database_for_periodic));
-    println!("🕒 定期日付チェックタスクを開始しました（1時間ごと）");
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {

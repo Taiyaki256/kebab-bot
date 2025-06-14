@@ -167,4 +167,44 @@ impl VoteService {
             }
         }
     }
+
+    /// 投票期間が変わったかどうかをチェックし、変わっていた場合は投票をリセットして掲示板を更新
+    /// Serenity Contextを使用して掲示板の更新も行う
+    pub async fn check_reset_and_update_board_if_new_day(
+        db: &DatabaseConnection,
+        serenity_ctx: &poise::serenity_prelude::Context,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let reset = Self::check_and_reset_votes_if_new_day(db).await?;
+
+        if reset {
+            // 投票期間が変わった場合、掲示板も更新する
+            let board_data = crate::services::BoardService::get_all_board_data(db).await?;
+            if !board_data.is_empty() {
+                println!("📋 投票期間変更に伴い掲示板を更新中...");
+
+                // タイムラインチャートを再生成（空のデータで）
+                let timeline_path = "vote_timeline.png";
+                let votes = Self::get_all_votes(db).await?;
+                if let Err(e) = crate::services::ChartService::generate_vote_timeline_chart(
+                    votes,
+                    timeline_path,
+                )
+                .await
+                {
+                    eprintln!("タイムラインチャート生成エラー: {}", e);
+                }
+
+                let _response =
+                    crate::services::BoardUIService::update_all_board_messages_serenity(
+                        serenity_ctx,
+                        board_data,
+                        db,
+                    )
+                    .await?;
+                println!("✅ 投票期間変更に伴う掲示板更新が完了しました");
+            }
+        }
+
+        Ok(reset)
+    }
 }

@@ -89,19 +89,6 @@ pub async fn vote_chart(ctx: Context<'_>) -> Result<(), Error> {
         return Ok(());
     }
 
-    // 現在の投票数を取得
-    let found_count = VoteService::count_votes_by_action(&ctx.data().database, "found".to_string())
-        .await
-        .unwrap_or(0);
-    let not_found_count =
-        VoteService::count_votes_by_action(&ctx.data().database, "not_found".to_string())
-            .await
-            .unwrap_or(0);
-    let sold_out_count =
-        VoteService::count_votes_by_action(&ctx.data().database, "sold_out".to_string())
-            .await
-            .unwrap_or(0);
-
     // 時系列グラフを生成
     let timeline_path = "vote_timeline.png";
     match ChartService::generate_vote_timeline_chart(votes, timeline_path).await {
