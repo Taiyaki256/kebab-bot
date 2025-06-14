@@ -86,11 +86,11 @@ impl ChartService {
 
                     // ラベルエリアに描画
                     let chart_width = 1200.0 - 20.0 * 2.0 - 60.0; // 全体幅 - マージン - Y軸ラベルエリア
-                    let x_pixel = 20.0 + 60.0 + (x_pos / time_labels.len() as f32) * chart_width;
+                    let x_pixel = 60.0 + (x_pos / time_labels.len() as f32) * chart_width;
 
                     lower.draw(&Text::new(
                         time_str,
-                        (x_pixel as i32, 30),
+                        (x_pixel as i32, 0),
                         ("Hiragino Sans", 14).into_font().color(&BLACK),
                     ))?;
 
