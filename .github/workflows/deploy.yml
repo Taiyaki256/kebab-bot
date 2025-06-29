@@ -23,6 +23,8 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: cross build --release --target x86_64-unknown-linux-musl
 
       - name: Rename binary
