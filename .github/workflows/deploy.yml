@@ -1,7 +1,7 @@
 name: Deploy
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   deploy:
@@ -19,7 +19,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
-        run: sudo apt-get install -y pkg-config libfreetype6-dev libfontconfig1-dev
+        run: sudo apt-get install -y pkg-config libfreetype6-dev libfontconfig1-dev fontconfig-devel
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
