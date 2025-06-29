@@ -27,7 +27,9 @@ jobs:
       - name: Build
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
-        run: RUST_FONTCONFIG_DLOPEN=on cross build --release --target x86_64-unknown-linux-musl
+          RUST_FONTCONFIG_DLOPEN: on
+          PKG_CONFIG_ALLOW_CROSS: 1
+        run: cross build --release --target x86_64-unknown-linux-musl
 
       - name: Rename binary
         run: mv ./target/x86_64-unknown-linux-musl/release/kebab-bot ./kebab-bot-new
