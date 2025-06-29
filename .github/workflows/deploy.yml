@@ -24,6 +24,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libfontconfig1-dev musl-tools
           sudo apt install pkg-config libfreetype6-dev libfontconfig1-dev
+          sudo apt-get install -y musl-dev
 
       - name: Build
         env:
