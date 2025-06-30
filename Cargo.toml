@@ -12,5 +12,5 @@ migration = { path = "./migration" }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 dotenvy = "0.15"
-plotters = "0.3"
+plotters = { version = "0.3", default-features = false, features = ["bitmap_backend", "bitmap_encoder"] }
 plotters-bitmap = "0.3"
