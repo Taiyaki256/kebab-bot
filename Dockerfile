@@ -34,20 +34,11 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user
-RUN useradd -r -s /bin/false kebab-bot
-
-# Create app directory and set permissions
-RUN mkdir -p /app && chown kebab-bot:kebab-bot /app
-
 # Copy the binary
 COPY --from=builder /app/target/release/kebab-bot /usr/local/bin/kebab-bot
 
 # Set permissions
 RUN chmod +x /usr/local/bin/kebab-bot
-
-# Switch to non-root user
-USER kebab-bot
 
 # Run the application
 CMD ["kebab-bot"]
