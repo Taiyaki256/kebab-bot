@@ -5,7 +5,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${github.repository.toLowerCase()}
+  IMAGE_NAME: taiyaki256/kebab-bot
 
 jobs:
   build-and-push:
