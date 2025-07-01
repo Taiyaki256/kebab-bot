@@ -25,12 +25,10 @@ jobs:
           sudo apt-get install -y fonts-noto-cjk fonts-liberation
 
       - name: Build
-        env:
-          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: cargo build --release
 
       - name: Rename binary
-        run: mv ./target/x86_64-unknown-linux-musl/release/kebab-bot ./kebab-bot-new
+        run: mv ./target/release/kebab-bot ./kebab-bot-new
 
       - name: Send to server
         uses: appleboy/scp-action@master
