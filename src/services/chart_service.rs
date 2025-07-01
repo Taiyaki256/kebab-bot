@@ -54,7 +54,7 @@ impl ChartService {
         let (upper, lower) = root.split_vertically((94).percent());
 
         let mut chart = ChartBuilder::on(&upper)
-            .caption("ケバブ屋", ("Hiragino Sans", 40).into_font().color(&BLACK))
+            .caption("ケバブ屋", ("Noto Sans CJK JP, Liberation Sans, Arial, sans-serif", 40).into_font().color(&BLACK))
             .margin(20)
             .x_label_area_size(20)
             .y_label_area_size(60)
@@ -69,8 +69,8 @@ impl ChartService {
             .y_max_light_lines(5)
             .y_label_formatter(&|y| format!("{}", *y as i32)) // 整数表示
             .y_labels(5)
-            .label_style(("Hiragino Sans", 15).into_font().color(&BLACK))
-            .axis_desc_style(("Hiragino Sans", 20).into_font().color(&BLACK))
+            .label_style(("Noto Sans CJK JP, Liberation Sans, Arial, sans-serif", 15).into_font().color(&BLACK))
+            .axis_desc_style(("Noto Sans CJK JP, Liberation Sans, Arial, sans-serif", 20).into_font().color(&BLACK))
             .x_labels(0)
             .draw()?;
 
@@ -88,7 +88,7 @@ impl ChartService {
                     lower.draw(&Text::new(
                         time_str,
                         (x_pixel as i32, 0),
-                        ("Hiragino Sans", 14).into_font().color(&BLACK),
+                        ("Noto Sans CJK JP, Liberation Sans, Arial, sans-serif", 14).into_font().color(&BLACK),
                     ))?;
 
                     // 縦のグリッド線を描画
@@ -148,7 +148,7 @@ impl ChartService {
             .configure_series_labels()
             .background_style(&WHITE.mix(0.8))
             .border_style(&BLACK)
-            .label_font(("Hiragino Sans", 15).into_font().color(&BLACK))
+            .label_font(("Noto Sans CJK JP, Liberation Sans, Arial, sans-serif", 15).into_font().color(&BLACK))
             .draw()?;
 
         root.present()?;
