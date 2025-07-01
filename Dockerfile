@@ -37,6 +37,9 @@ RUN apt-get update && apt-get install -y \
 # Create app user
 RUN useradd -r -s /bin/false kebab-bot
 
+# Create app directory and set permissions
+RUN mkdir -p /app && chown kebab-bot:kebab-bot /app
+
 # Copy the binary
 COPY --from=builder /app/target/release/kebab-bot /usr/local/bin/kebab-bot
 
