@@ -23,8 +23,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libfreetype6-dev libfontconfig1-dev musl-tools build-essential cmake fontconfig
-          sudo apt-get install -y fonts-noto-cjk fonts-liberation musl-dev
+          sudo apt-get install -y pkg-config libfreetype6-dev libfontconfig1-dev build-essential cmake fontconfig
+          sudo apt-get install -y fonts-noto-cjk fonts-liberation
 
       - name: Build
         env:
