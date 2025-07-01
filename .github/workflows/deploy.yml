@@ -63,4 +63,5 @@ jobs:
             mkdir -p ~/kebab-bot-data
             docker run -d --name kebab-bot --restart unless-stopped \
               -v ~/kebab-bot-data:/app \
+              -e DISCORD_TOKEN="${{ secrets.DISCORD_TOKEN }}" \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
