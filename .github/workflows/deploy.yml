@@ -61,6 +61,7 @@ jobs:
             docker stop kebab-bot || true
             docker rm kebab-bot || true
             mkdir -p ~/kebab-bot-data
+            sudo chown 1001:1001 ~/kebab-bot-data
             docker run -d --name kebab-bot --restart unless-stopped \
               -v ~/kebab-bot-data:/home/appuser \
               -e DISCORD_TOKEN="${{ secrets.DISCORD_TOKEN }}" \
