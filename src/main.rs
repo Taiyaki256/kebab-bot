@@ -273,15 +273,11 @@ async fn main() {
             commands: vec![
                 help(),
                 ping(),
-                userinfo(),
-                serverinfo(),
                 create_board(),
                 update_board(),
                 reset_votes(),
                 vote_results(),
                 vote_chart(),
-                vote_date_info(),
-                vote_sample(),
             ],
             ..Default::default()
         })
